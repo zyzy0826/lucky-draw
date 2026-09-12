@@ -188,6 +188,9 @@
     pointer-events: none;
   }
   .wheel-stage.is-spinning::before { animation: glow 1.1s ease-in-out infinite alternate; }
+  /* 全部抽完：轉盤褪色、光暈收掉，遠遠就看得出已經結束 */
+  .wheel-stage.is-ended::before { opacity: .2; }
+  .wheel-stage.is-ended .wheel-rotor svg { filter: grayscale(.9) opacity(.7); }
   @keyframes glow { from { opacity: .6; } to { opacity: 1; } }
 
   .wheel-rim {
@@ -221,7 +224,7 @@
     border-radius: 50%;
     will-change: transform;
   }
-  .wheel-rotor svg { display: block; width: 100%; height: 100%; }
+  .wheel-rotor svg { display: block; width: 100%; height: 100%; transition: filter .8s ease; }
   /* 指針以上緣中心為軸心，格線經過時會被「撥」一下 */
   .pointer { transform-box: fill-box; transform-origin: 50% 0; }
   .wheel-rotor text {
@@ -1355,6 +1358,7 @@ function render() {
   const stage = $('wheelStage');
   stage.classList.toggle('is-ready', ready);
   stage.classList.toggle('is-spinning', ui.spinning);
+  stage.classList.toggle('is-ended', ended && !ui.spinning);
   document.body.classList.toggle('is-spinning', ui.spinning);
   $('endedOverlay').hidden = !(ended && !ui.spinning && !ui.resultOpen);
 
