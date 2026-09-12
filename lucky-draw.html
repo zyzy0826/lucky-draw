@@ -783,6 +783,7 @@
 <section class="admin" id="adminPanel" hidden aria-label="管理後台">
   <div class="admin-bar">
     <h1>管理後台</h1>
+    <button class="btn btn-ghost" id="fullscreenBtn" type="button">全螢幕</button>
     <button class="btn btn-ghost" id="exportBtn" type="button">匯出 CSV</button>
     <button class="btn btn-danger" id="resetBtn" type="button">重置</button>
     <button class="btn btn-primary" id="closeAdminBtn" type="button">返回抽獎</button>
@@ -1517,6 +1518,34 @@ function exportCsv() {
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+/* ---------------- 全螢幕：擺攤時把瀏覽器介面藏起來 ---------------- */
+const fullscreenBtn = $('fullscreenBtn');
+const docEl = document.documentElement;
+const requestFs = docEl.requestFullscreen || docEl.webkitRequestFullscreen;
+const exitFs = document.exitFullscreen || document.webkitExitFullscreen;
+const isFullscreen = () => !!(document.fullscreenElement || document.webkitFullscreenElement);
+
+function toggleFullscreen() {
+  if (isFullscreen()) {
+    exitFs.call(document);
+    return;
+  }
+  const result = requestFs.call(docEl);
+  if (result && result.catch) result.catch(() => toast('此瀏覽器不允許全螢幕，請改用 F11'));
+}
+
+function renderFullscreenBtn() {
+  fullscreenBtn.textContent = isFullscreen() ? '離開全螢幕' : '全螢幕';
+}
+
+if (requestFs && exitFs) {
+  fullscreenBtn.addEventListener('click', toggleFullscreen);
+  document.addEventListener('fullscreenchange', renderFullscreenBtn);
+  document.addEventListener('webkitfullscreenchange', renderFullscreenBtn);
+} else {
+  fullscreenBtn.hidden = true; // 例如 iPhone Safari 不支援網頁全螢幕
 }
 
 /* ---------------- 密碼登入 ---------------- */
