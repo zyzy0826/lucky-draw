@@ -14,7 +14,7 @@
       name       獎品名稱
       initial    初始數量
       unlimited  設為 true 代表數量不限（不扣庫存、永遠抽得到，此時不需要 initial）
-      weight     基礎機率權重（相對值，例如 85 / 10 / 5，不一定要加總 100）
+      weight     基礎機率權重（相對值，例如 45 / 40 / 10 / 5，不一定要加總 100）
       slices     轉盤上的格子數（只影響外觀，不影響機率）
       color      格子顏色（請用 #RRGGBB 格式，漸層亮部會自動計算）
       textColor  格子上的文字顏色
@@ -613,7 +613,7 @@
 
   .inv-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(236px, 1fr));
     gap: 14px;
   }
   .inv-card {
@@ -870,14 +870,16 @@ const CONFIG = {
   //   id        內部識別碼（英數，不可重複；改了會被視為新獎品）
   //   name      顯示名稱
   //   initial   初始數量
-  //   weight    基礎機率權重（相對值）。85 / 10 / 5 → 85% / 10% / 5%
+  //   unlimited 設為 true 代表數量不限：不扣庫存、永遠抽得到（可省略 initial）
+  //   weight    基礎機率權重（相對值）。45 / 40 / 10 / 5 → 45% / 40% / 10% / 5%
   //   slices    轉盤上的格子數（只影響外觀，不影響機率）
   //   color     格子顏色
   //   textColor 格子文字顏色（要跟 color 有足夠對比）
   prizes: [
-    { id: 'sticky', name: '便利貼', initial: 60, weight: 85, slices: 16, color: '#FFB42E', textColor: '#4A2E00' },
-    { id: 'mug',    name: '咖啡杯', initial: 5,  weight: 10, slices: 2,  color: '#4A63F5', textColor: '#FFFFFF' },
-    { id: 'tote',   name: '托特包', initial: 5,  weight: 5,  slices: 2,  color: '#F03C7E', textColor: '#FFFFFF' },
+    { id: 'sticky',  name: '便利貼', initial: 60,     weight: 40, slices: 8, color: '#FFB42E', textColor: '#4A2E00' },
+    { id: 'sticker', name: '貼紙',   unlimited: true, weight: 45, slices: 8, color: '#22C79A', textColor: '#043B2B' },
+    { id: 'mug',     name: '咖啡杯', initial: 5,      weight: 10, slices: 2, color: '#4A63F5', textColor: '#FFFFFF' },
+    { id: 'tote',    name: '托特包', initial: 5,      weight: 5,  slices: 2, color: '#F03C7E', textColor: '#FFFFFF' },
   ],
 };
 /* ================================================================ */
@@ -1020,7 +1022,7 @@ const allOut = s => !PRIZES.some(p => hasStock(p, s.stock));
  * 1. 只考慮「剩餘數量 > 0」或「不限量」的獎品。
  * 2. 把這些獎品的基礎權重 weight 加總，每個獎品的機率 = weight / 總和。
  *    這就等於把「已抽完的獎品」原本的機率，按比例分給其他還有庫存的獎品。
- *    例：85 / 10 / 5，托特包抽完 → 便利貼 85/95 ≈ 89.5%、咖啡杯 10/95 ≈ 10.5%。
+ *    例：45 / 40 / 10 / 5，托特包抽完 → 貼紙 45/95 ≈ 47.4%、便利貼 40/95 ≈ 42.1%、咖啡杯 10/95 ≈ 10.5%。
  * 3. 特例：若剩下的獎品權重全是 0，則由它們平均分配，確保有庫存就抽得到。
  *
  * 回傳 { [prizeId]: 機率(0~1) }，沒有庫存的獎品機率為 0。
