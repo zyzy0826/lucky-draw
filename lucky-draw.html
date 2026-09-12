@@ -222,6 +222,8 @@
     will-change: transform;
   }
   .wheel-rotor svg { display: block; width: 100%; height: 100%; }
+  /* 指針以上緣中心為軸心，格線經過時會被「撥」一下 */
+  .pointer { transform-box: fill-box; transform-origin: 50% 0; }
   .wheel-rotor text {
     font-family: var(--font);
     font-weight: 800;
@@ -738,8 +740,10 @@
           <clipPath id="wheelClip"><circle r="100"/></clipPath>
         </defs>
         <ellipse cx="0" cy="-58" rx="92" ry="52" fill="url(#glossGrad)" clip-path="url(#wheelClip)"/>
-        <path d="M-12 -112 L12 -112 L0 -86 Z" fill="#FFFFFF" stroke="#FFFFFF" stroke-width="11" stroke-linejoin="round" filter="url(#softShadow)"/>
-        <path d="M-12 -112 L12 -112 L0 -86 Z" fill="url(#accentGrad)" stroke="url(#accentGrad)" stroke-width="4" stroke-linejoin="round"/>
+        <g class="pointer" id="pointer">
+          <path d="M-12 -112 L12 -112 L0 -86 Z" fill="#FFFFFF" stroke="#FFFFFF" stroke-width="11" stroke-linejoin="round" filter="url(#softShadow)"/>
+          <path d="M-12 -112 L12 -112 L0 -86 Z" fill="url(#accentGrad)" stroke="url(#accentGrad)" stroke-width="4" stroke-linejoin="round"/>
+        </g>
         <circle r="24" fill="#FFFFFF" fill-opacity=".88" stroke="#FFFFFF" stroke-width="1.5" filter="url(#softShadow)"/>
         <circle r="18" fill="url(#accentGrad)"/>
         <text y="0.5" font-size="15" font-weight="800" fill="#FFFFFF" text-anchor="middle" dominant-baseline="central" style="font-family: var(--font)">抽</text>
@@ -1136,11 +1140,13 @@ function animateWheelTo(angle, onDone) {
   // ease-out：一開始很快、最後慢慢停下
   rotor.style.transition = `transform ${CONFIG.spinDurationMs}ms cubic-bezier(0.12, 0.7, 0.12, 1)`;
   rotor.style.transform = `rotate(${ui.rotation}deg)`;
+  const stopTicking = startPointerTicks();
 
   let finished = false;
   const finish = () => {
     if (finished) return;
     finished = true;
+    stopTicking();
     rotor.removeEventListener('transitionend', onEnd);
     clearTimeout(timer);
     setWheelRotation(((ui.rotation % 360) + 360) % 360); // 角度歸一，數字不會無限變大
@@ -1149,6 +1155,41 @@ function animateWheelTo(angle, onDone) {
   const onEnd = e => { if (e.target === rotor && e.propertyName === 'transform') finish(); };
   rotor.addEventListener('transitionend', onEnd);
   const timer = setTimeout(finish, CONFIG.spinDurationMs + 250); // 分頁在背景時 transitionend 可能不會觸發
+}
+
+/**
+ * 轉動期間每一格經過指針時，讓指針被撥動一下（純視覺）。
+ * 由 getComputedStyle 讀取目前旋轉角度、換算成指針下方的格子編號，
+ * 編號一變就播一段很短的 WAAPI 動畫；轉盤減速時撥動也自然變慢。
+ * 回傳一個停止函式。
+ */
+const pointer = $('pointer');
+function startPointerTicks() {
+  if (reducedMotion.matches || !pointer.animate) return () => {};
+  let raf = 0;
+  let lastIndex = -1;
+  let anim = null;
+
+  const frame = () => {
+    const m = getComputedStyle(rotor).transform.match(/matrix\(([^)]+)\)/);
+    if (m) {
+      const [a, b] = m[1].split(',').map(Number);
+      const rotation = Math.atan2(b, a) * 180 / Math.PI; // 目前畫面上的旋轉角
+      const under = ((-rotation % 360) + 360) % 360;      // 指針正下方的轉盤座標角
+      const index = Math.floor(under / SLICE_DEG);
+      if (lastIndex !== -1 && index !== lastIndex) {
+        if (anim) anim.cancel();
+        anim = pointer.animate(
+          [{ transform: 'rotate(0deg)' }, { transform: 'rotate(13deg)', offset: .3 }, { transform: 'rotate(0deg)' }],
+          { duration: 150, easing: 'ease-out' }
+        );
+      }
+      lastIndex = index;
+    }
+    raf = requestAnimationFrame(frame);
+  };
+  raf = requestAnimationFrame(frame);
+  return () => { cancelAnimationFrame(raf); if (anim) anim.cancel(); };
 }
 
 /* ================================================================
