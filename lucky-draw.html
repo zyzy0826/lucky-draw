@@ -13,6 +13,7 @@
     找到 <script> 最上方的 CONFIG 物件，修改 CONFIG.prizes：
       name       獎品名稱
       initial    初始數量
+      unlimited  設為 true 代表數量不限（不扣庫存、永遠抽得到，此時不需要 initial）
       weight     基礎機率權重（相對值，例如 85 / 10 / 5，不一定要加總 100）
       slices     轉盤上的格子數（只影響外觀，不影響機率）
       color      格子顏色（請用 #RRGGBB 格式，漸層亮部會自動計算）
@@ -305,6 +306,17 @@
   .stock-count b { display: inline-block; font-size: clamp(1.5rem, 1.1vw + 1.1rem, 2.1rem); font-weight: 800; }
   .stock-item.is-out { opacity: .5; }
   .stock-item.is-out .stock-count { font-weight: 700; color: var(--ink-faint); padding: .3em 0; }
+  .stock-inf {
+    display: inline-block;
+    padding: .3em 0;
+    font-size: clamp(1.05rem, .7vw + .85rem, 1.35rem);
+    font-weight: 800;
+    letter-spacing: .06em;
+    background: var(--grad-accent);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
 
   .spin-btn {
     width: 100%;
@@ -637,6 +649,7 @@
   .inv-stats dt { font-size: .8rem; color: var(--ink-soft); }
   .inv-stats dd { margin: 0; font-size: 1.45rem; font-weight: 800; font-variant-numeric: tabular-nums; }
   .stepper-label { display: block; margin-bottom: 6px; font-size: .85rem; color: var(--ink-soft); font-weight: 700; }
+  .inv-note { margin: 0; padding: 12px 4px 4px; font-size: .88rem; color: var(--ink-faint); font-weight: 600; }
   .stepper { display: flex; align-items: center; gap: 8px; }
   .stepper .btn { padding: 0; font-size: 1.5rem; }
   .stepper input {
@@ -960,9 +973,12 @@ const storage = (() => {
 
 function createInitialState() {
   const stock = {};
-  PRIZES.forEach(p => { stock[p.id] = p.initial; });
+  PRIZES.forEach(p => { stock[p.id] = p.unlimited ? 0 : p.initial; });
   return { stock, records: [], pending: null };
 }
+
+/** 不限量獎品永遠有庫存；其餘看剩餘數量 */
+const hasStock = (p, stock) => p.unlimited || stock[p.id] > 0;
 
 /** 從 localStorage 讀取最新狀態，並與 CONFIG 合併（CONFIG 新增的獎品使用初始數量） */
 function loadState() {
@@ -993,12 +1009,15 @@ function updateState(mutator) {
   saveState(state);
 }
 
-const totalStock = s => PRIZES.reduce((sum, p) => sum + s.stock[p.id], 0);
+/** 限量獎品的剩餘總數（不限量的不計） */
+const totalStock = s => PRIZES.reduce((sum, p) => sum + (p.unlimited ? 0 : s.stock[p.id]), 0);
+/** 全部抽完 = 沒有任何獎品還抽得到（只要有不限量獎品，就永遠不會結束） */
+const allOut = s => !PRIZES.some(p => hasStock(p, s.stock));
 
 /* ================================================================
  * ★ 機率計算
  *
- * 1. 只考慮「剩餘數量 > 0」的獎品。
+ * 1. 只考慮「剩餘數量 > 0」或「不限量」的獎品。
  * 2. 把這些獎品的基礎權重 weight 加總，每個獎品的機率 = weight / 總和。
  *    這就等於把「已抽完的獎品」原本的機率，按比例分給其他還有庫存的獎品。
  *    例：85 / 10 / 5，托特包抽完 → 便利貼 85/95 ≈ 89.5%、咖啡杯 10/95 ≈ 10.5%。
@@ -1010,7 +1029,7 @@ function getProbabilities(stock) {
   const result = {};
   PRIZES.forEach(p => { result[p.id] = 0; });
 
-  const available = PRIZES.filter(p => stock[p.id] > 0);
+  const available = PRIZES.filter(p => hasStock(p, stock));
   const totalWeight = available.reduce((sum, p) => sum + Math.max(0, p.weight), 0);
 
   available.forEach(p => {
@@ -1229,7 +1248,7 @@ function spin() {
     prizeId: prize.id,
     prizeName: prize.name,
   };
-  state.stock[prize.id] -= 1;
+  if (!prize.unlimited) state.stock[prize.id] -= 1;
   state.records.push(record);
   state.pending = { recordId: record.id, prizeId: prize.id, angle };
   saveState(state);
@@ -1269,8 +1288,9 @@ function showResult(prize, celebrate) {
   // 讓志工一眼看到這個獎品還剩幾個（庫存在抽出當下就已扣掉）
   const left = state.stock[prize.id];
   const meta = $('resultMeta');
-  meta.textContent = left > 0 ? `這個獎品還剩 ${left} 個` : '這是最後一個！';
-  meta.classList.toggle('is-last', left <= 0);
+  if (prize.unlimited) meta.textContent = '數量不限，人人有獎';
+  else meta.textContent = left > 0 ? `這個獎品還剩 ${left} 個` : '這是最後一個！';
+  meta.classList.toggle('is-last', !prize.unlimited && left <= 0);
 
   resultModal.hidden = false;
   ui.resultOpen = true;
@@ -1314,14 +1334,16 @@ function buildStock() {
 
 function renderStock() {
   $('stockList').querySelectorAll('.stock-item').forEach(item => {
-    const n = state.stock[item.dataset.id];
-    const out = n <= 0;
+    const p = PRIZE_BY_ID[item.dataset.id];
+    const n = state.stock[p.id];
+    const out = !hasStock(p, state.stock);
     const changed = item.dataset.n !== undefined && Number(item.dataset.n) !== n;
     item.dataset.n = n;
     item.classList.toggle('is-out', out);
 
     const count = item.querySelector('.stock-count');
-    count.innerHTML = out ? '已抽完' : `<small>剩</small><b>${n}</b>`;
+    if (p.unlimited) count.innerHTML = '<span class="stock-inf">不限量</span>';
+    else count.innerHTML = out ? '已抽完' : `<small>剩</small><b>${n}</b>`;
 
     // 數字有變（通常是剛抽完一次）→ 彈一下，讓排隊的人注意到
     const num = count.querySelector('b');
@@ -1338,7 +1360,7 @@ function render() {
   // 結果已在別處被確認或被重置 → 關閉彈窗
   if (ui.resultOpen && !state.pending) closeResult();
 
-  const ended = totalStock(state) === 0;
+  const ended = allOut(state);
 
   // 轉動中不更新剩餘數量（避免提前透露結果）
   if (!ui.spinning) renderStock();
@@ -1379,16 +1401,17 @@ function buildAdminInventory() {
         <span class="inv-prob" data-field="prob"></span>
       </div>
       <dl class="inv-stats">
-        <div><dt>初始</dt><dd>${p.initial}</dd></div>
+        <div><dt>初始</dt><dd>${p.unlimited ? '∞' : p.initial}</dd></div>
         <div><dt>已抽出</dt><dd data-field="drawn"></dd></div>
         <div><dt>剩餘</dt><dd data-field="remaining"></dd></div>
       </dl>
+      ${p.unlimited ? '<p class="inv-note">不限量獎品不扣庫存，無需調整數量</p>' : `
       <span class="stepper-label">調整剩餘數量</span>
       <div class="stepper">
         <button class="btn btn-ghost" type="button" data-act="dec" aria-label="${esc(p.name)} 減少 1">−</button>
         <input type="number" min="0" step="1" inputmode="numeric" data-field="input" aria-label="${esc(p.name)} 剩餘數量">
         <button class="btn btn-ghost" type="button" data-act="inc" aria-label="${esc(p.name)} 增加 1">+</button>
-      </div>
+      </div>`}
     </article>`).join('');
 }
 
@@ -1401,17 +1424,20 @@ function renderAdmin() {
 
   invGrid.querySelectorAll('.inv-card').forEach(card => {
     const id = card.dataset.id;
+    const p = PRIZE_BY_ID[id];
     const n = state.stock[id];
-    card.classList.toggle('is-out', n <= 0);
-    card.querySelector('[data-field="prob"]').textContent = n > 0 ? `目前機率 ${(probs[id] * 100).toFixed(1)}%` : '已抽完';
+    const out = !hasStock(p, state.stock);
+    card.classList.toggle('is-out', out);
+    card.querySelector('[data-field="prob"]').textContent = out ? '已抽完' : `目前機率 ${(probs[id] * 100).toFixed(1)}%`;
     card.querySelector('[data-field="drawn"]').textContent = drawn[id] || 0;
-    card.querySelector('[data-field="remaining"]').textContent = n;
+    card.querySelector('[data-field="remaining"]').textContent = p.unlimited ? '∞' : n;
+    if (p.unlimited) return; // 不限量獎品沒有調整數量的欄位
     card.querySelector('[data-act="dec"]').disabled = n <= 0;
     const input = card.querySelector('[data-field="input"]');
     if (document.activeElement !== input) input.value = n; // 正在輸入時不要蓋掉
   });
 
-  $('invMeta').textContent = `已抽出 ${state.records.length} 次・剩餘 ${totalStock(state)} 個`;
+  $('invMeta').textContent = `已抽出 ${state.records.length} 次・限量獎品剩餘 ${totalStock(state)} 個`;
   $('recordMeta').textContent = `共 ${state.records.length} 筆`;
 
   // 最新的排在最上面
