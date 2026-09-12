@@ -297,7 +297,7 @@
     white-space: nowrap;
   }
   .stock-count small { font-size: .85rem; font-weight: 600; color: var(--ink-faint); margin-right: 4px; }
-  .stock-count b { font-size: clamp(1.5rem, 1.1vw + 1.1rem, 2.1rem); font-weight: 800; }
+  .stock-count b { display: inline-block; font-size: clamp(1.5rem, 1.1vw + 1.1rem, 2.1rem); font-weight: 800; }
   .stock-item.is-out { opacity: .5; }
   .stock-item.is-out .stock-count { font-weight: 700; color: var(--ink-faint); padding: .3em 0; }
 
@@ -485,9 +485,30 @@
     font-weight: 700;
     color: var(--ink-soft) !important;
   }
+  .result-badge {
+    display: inline-block;
+    margin-bottom: 12px;
+    padding: .3em .95em;
+    border-radius: 999px;
+    background: linear-gradient(120deg, #FFE59A, #FFB648);
+    color: #5A3A00;
+    font-size: .9rem;
+    font-weight: 800;
+    letter-spacing: .1em;
+    box-shadow: 0 6px 16px rgba(255, 170, 60, .35);
+    animation: pop .6s .35s cubic-bezier(.2, 1.6, .4, 1) both;
+  }
+  .result-meta {
+    margin: 0 0 24px !important;
+    font-size: .98rem;
+    font-weight: 600;
+    color: var(--ink-faint) !important;
+    font-variant-numeric: tabular-nums;
+  }
+  .result-meta.is-last { color: var(--danger) !important; }
   .result-prize {
     display: inline-block;
-    margin: 18px 0 28px;
+    margin: 18px 0 14px;
     padding: .2em .8em;
     border-radius: 24px;
     font-size: clamp(2.4rem, 7vw + 1rem, 4.2rem);
@@ -743,8 +764,10 @@
 <!-- ======================= 開獎結果 ======================= -->
 <div class="modal-backdrop" id="resultModal" hidden>
   <div class="modal result-card" id="resultCard" role="dialog" aria-modal="true" aria-labelledby="resultLabel" tabindex="-1">
+    <span class="result-badge" id="resultBadge" hidden>✨ 稀有大獎</span>
     <p class="result-label" id="resultLabel">🎉 恭喜你抽中了</p>
     <div class="result-prize" id="resultPrize"></div>
+    <p class="result-meta" id="resultMeta"></p>
     <button class="btn btn-go" id="confirmResultBtn" type="button">確認 / 下一位</button>
   </div>
 </div>
@@ -1192,6 +1215,18 @@ function showResult(prize, celebrate) {
   card.style.setProperty('--prize-glow', withAlpha(prize.color, 0.35));
   card.style.setProperty('--prize-ink', prize.textColor);
   $('resultPrize').textContent = `${prize.name}！`;
+
+  // 稀有獎品（基礎機率 < 20%）加上徽章、灑更多彩帶
+  const totalWeight = PRIZES.reduce((sum, p) => sum + Math.max(0, p.weight), 0) || 1;
+  const isRare = prize.weight / totalWeight < 0.2;
+  $('resultBadge').hidden = !isRare;
+
+  // 讓志工一眼看到這個獎品還剩幾個（庫存在抽出當下就已扣掉）
+  const left = state.stock[prize.id];
+  const meta = $('resultMeta');
+  meta.textContent = left > 0 ? `這個獎品還剩 ${left} 個` : '這是最後一個！';
+  meta.classList.toggle('is-last', left <= 0);
+
   resultModal.hidden = false;
   ui.resultOpen = true;
   render();
@@ -1204,8 +1239,6 @@ function showResult(prize, celebrate) {
   confirmGuardTimer = setTimeout(() => { confirmResultBtn.disabled = false; }, 700);
 
   if (celebrate) {
-    const totalWeight = PRIZES.reduce((sum, p) => sum + Math.max(0, p.weight), 0) || 1;
-    const isRare = prize.weight / totalWeight < 0.2;
     Confetti.burst(isRare ? 240 : 120, [prize.color, tint(prize.color, 0.4), '#FFFFFF', '#A78BFA', '#7DD3FC', '#F9A8D4', '#FDBA74']);
   }
 }
@@ -1225,15 +1258,35 @@ function confirmResult() {
 /* ================================================================
  * 畫面更新
  * ================================================================ */
-function renderStock() {
-  $('stockList').innerHTML = PRIZES.map(p => {
-    const n = state.stock[p.id];
-    const out = n <= 0;
-    return `<li class="stock-item${out ? ' is-out' : ''}">
+/** 剩餘數量卡片只建立一次，之後就地更新，數字變動時才能做彈跳動畫 */
+function buildStock() {
+  $('stockList').innerHTML = PRIZES.map(p => `
+    <li class="stock-item" data-id="${esc(p.id)}">
       <span class="stock-label"><i class="swatch" style="background:${esc(p.color)}"></i>${esc(p.name)}</span>
-      <span class="stock-count">${out ? '已抽完' : `<small>剩</small><b>${n}</b>`}</span>
-    </li>`;
-  }).join('');
+      <span class="stock-count"></span>
+    </li>`).join('');
+}
+
+function renderStock() {
+  $('stockList').querySelectorAll('.stock-item').forEach(item => {
+    const n = state.stock[item.dataset.id];
+    const out = n <= 0;
+    const changed = item.dataset.n !== undefined && Number(item.dataset.n) !== n;
+    item.dataset.n = n;
+    item.classList.toggle('is-out', out);
+
+    const count = item.querySelector('.stock-count');
+    count.innerHTML = out ? '已抽完' : `<small>剩</small><b>${n}</b>`;
+
+    // 數字有變（通常是剛抽完一次）→ 彈一下，讓排隊的人注意到
+    const num = count.querySelector('b');
+    if (changed && num && !reducedMotion.matches && num.animate) {
+      num.animate(
+        [{ transform: 'scale(1)' }, { transform: 'scale(1.4)', color: '#6D5BFF', offset: .3 }, { transform: 'scale(1)' }],
+        { duration: 650, easing: 'cubic-bezier(.2, 1.4, .4, 1)' }
+      );
+    }
+  });
 }
 
 function render() {
@@ -1609,6 +1662,7 @@ function init() {
   if (!storage.available) $('storageWarn').hidden = false;
 
   renderWheel();
+  buildStock();
   buildAdminInventory();
 
   state = loadState();
